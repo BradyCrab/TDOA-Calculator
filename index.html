@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TDOA Calculator — Pegboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Share Tech Mono', monospace;
+    padding: 8px;
+    color: #1d3557;
+  }
+  h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #1d3557;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    font-size: 9px;
+    color: rgba(29,53,87,0.5);
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .canvas-wrap {
+    width: 100%;
+    max-width: 720px;
+    position: relative;
+  }
+  canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid rgba(29,53,87,0.15);
+    border-radius: 4px;
+    cursor: crosshair;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+  }
+  .readout {
+    margin-top: 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 720px;
+  }
+  .card {
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    flex: 1 1 100px;
+    min-width: 80px;
+    text-align: center;
+  }
+  .card-navy { background: rgba(29,53,87,0.07); border: 1.5px solid rgba(29,53,87,0.2); color: #1d3557; }
+  .card-blue { background: rgba(42,108,182,0.07); border: 1.5px solid rgba(42,108,182,0.25); color: #2a6cb6; }
+  .card-red  { background: rgba(204,59,59,0.07); border: 1.5px solid rgba(204,59,59,0.25); color: #cc3b3b; }
+  .card-green { background: rgba(50,168,102,0.07); border: 1.5px solid rgba(50,168,102,0.25); color: #32a866; }
+  .card-orange { background: rgba(214,147,64,0.07); border: 1.5px solid rgba(214,147,64,0.25); color: #d69340; }
+  .card .val { font-size: 14px; font-weight: 700; font-family: 'Orbitron', sans-serif; display: block; margin-top: 2px; }
+  .card .lbl { font-size: 8px; opacity: 0.7; }
+  .footer {
+    margin-top: 6px;
+    font-size: 8px;
+    color: rgba(29,53,87,0.4);
+    letter-spacing: 1px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>TDOA Calculator</h1>
+<div class="subtitle">TAP ANY PEGBOARD HOLE TO SIMULATE SHOCKWAVE SOURCE</div>
+<div class="canvas-wrap">
+  <canvas id="c"></canvas>
+</div>
+<div class="readout">
+  <div class="card card-blue">
+    <span class="lbl">MIC 1 DIST</span>
+    <span class="val" id="d1">—</span>
+  </div>
+  <div class="card card-navy">
+    <span class="lbl">MIC 2 (REF)</span>
+    <span class="val" id="d2">—</span>
+  </div>
+  <div class="card card-red">
+    <span class="lbl">MIC 3 DIST</span>
+    <span class="val" id="d3">—</span>
+  </div>
+</div>
+<div class="readout">
+  <div class="card card-green">
+    <span class="lbl">Δt (MIC1 − MIC2)</span>
+    <span class="val" id="dt12">—</span>
+  </div>
+  <div class="card card-orange">
+    <span class="lbl">Δt (MIC3 − MIC2)</span>
+    <span class="val" id="dt32">—</span>
+  </div>
+</div>
+<div class="footer">
+  PEGBOARD 48″×24″ · 1″ HOLES · MICS 5″ BELOW · c = 343 m/s
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const BOARD_W = 48, BOARD_H = 24, HOLE_SP = 1, MIC_BELOW = 5;
+
+const PAD_L = 3, PAD_R = 3, PAD_T = 3, PAD_B = 12;
+const TOTAL_W = PAD_L + BOARD_W + PAD_R;
+const TOTAL_H = PAD_T + BOARD_H + MIC_BELOW + PAD_B;
+
+const SCALE = 12;
+const CW = Math.round(TOTAL_W * SCALE);
+const CH = Math.round(TOTAL_H * SCALE);
+canvas.width = CW;
+canvas.height = CH;
+
+const bx0 = PAD_L * SCALE;
+const by0 = PAD_T * SCALE;
+const bpxW = BOARD_W * SCALE;
+const bpxH = BOARD_H * SCALE;
+
+function inToPx(xi, yi) {
+  return { x: bx0 + xi * SCALE, y: by0 + yi * SCALE };
+}
+
+const micSp = 24;
+const mic1 = { xi: BOARD_W/2 - micSp, yi: BOARD_H + MIC_BELOW, label: 'MIC 1' };
+const mic2 = { xi: BOARD_W/2,          yi: BOARD_H + MIC_BELOW, label: 'MIC 2' };
+const mic3 = { xi: BOARD_W/2 + micSp,  yi: BOARD_H + MIC_BELOW, label: 'MIC 3' };
+const mics = [mic1, mic2, mic3];
+
+const C_IN_S = 13504;
+
+// Holes: start at 1", go up to BOARD-1
+const holes = [];
+for (let xi = 1; xi < BOARD_W; xi += HOLE_SP) {
+  for (let yi = 1; yi < BOARD_H; yi += HOLE_SP) {
+    holes.push({ xi, yi });
+  }
+}
+
+const COL = {
+  navy:'#1d3557', blue:'#2a6cb6', red:'#cc3b3b',
+  green:'#32a866', purple:'#57449c', orange:'#d69340', coral:'#d45d5d',
+};
+
+function distIn(x1,y1,x2,y2){ return Math.sqrt((x2-x1)**2+(y2-y1)**2); }
+function distPx(x1,y1,x2,y2){ return Math.sqrt((x2-x1)**2+(y2-y1)**2); }
+
+let selectedHole = null;
+let waveRadius = 0, waveActive = false, waveOrigin = null;
+let micHit = [false, false, false];
+
+// ══════════════════════════════════════════════
+function draw() {
+  ctx.clearRect(0, 0, CW, CH);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, CW, CH);
+
+  // Dot grid background
+  ctx.fillStyle = 'rgba(0,0,0,0.025)';
+  for (let x = 0; x < CW; x += 18) {
+    for (let y = 0; y < CH; y += 18) {
+      ctx.beginPath(); ctx.arc(x,y,0.7,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Board shadow
+  ctx.fillStyle = 'rgba(29,53,87,0.04)';
+  ctx.fillRect(bx0+3, by0+3, bpxW, bpxH);
+
+  // Board fill
+  const bg = ctx.createLinearGradient(bx0, by0, bx0, by0+bpxH);
+  bg.addColorStop(0,'#e8ddd0'); bg.addColorStop(0.5,'#dfd3c4'); bg.addColorStop(1,'#d6c9b8');
+  ctx.fillStyle = bg;
+  ctx.fillRect(bx0, by0, bpxW, bpxH);
+  ctx.strokeStyle = 'rgba(29,53,87,0.2)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx0, by0, bpxW, bpxH);
+
+  // Dimension labels
+  ctx.fillStyle = 'rgba(29,53,87,0.3)';
+  ctx.font = `${SCALE*0.7}px Share Tech Mono`;
+  ctx.textAlign = 'center';
+  ctx.fillText('48″', bx0 + bpxW/2, by0 - SCALE*0.4);
+  ctx.save();
+  ctx.translate(bx0 - SCALE*0.7, by0 + bpxH/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('24″', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+
+  // Board label
+  ctx.fillStyle = 'rgba(29,53,87,0.1)';
+  ctx.font = `${SCALE*0.65}px Orbitron`;
+  ctx.fillText('PEGBOARD 48″×24″ · 1″ CENTERS', bx0 + SCALE*0.5, by0 + SCALE*0.9);
+
+  // ── GRID LINES every 4th hole, starting from hole 1 ──
+  // Horizontal lines (blue) — through every 4th row: yi = 1, 5, 9, 13, 17, 21
+  ctx.lineWidth = Math.max(0.8, SCALE * 0.06);
+  for (let yi = 1; yi < BOARD_H; yi += 4) {
+    const p1 = inToPx(1, yi);
+    const p2 = inToPx(BOARD_W - 1, yi);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = 'rgba(42,108,182,0.3)';
+    ctx.stroke();
+  }
+
+  // Vertical lines (red) — through every 4th column: xi = 1, 5, 9, 13, ...
+  for (let xi = 1; xi < BOARD_W; xi += 4) {
+    const p1 = inToPx(xi, 1);
+    const p2 = inToPx(xi, BOARD_H - 1);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = 'rgba(204,59,59,0.3)';
+    ctx.stroke();
+  }
+
+  // ── Holes ──
+  const holeR = Math.max(1.2, SCALE * 0.14);
+  const selHoleR = Math.max(2.5, SCALE * 0.3);
+  holes.forEach(h => {
+    const p = inToPx(h.xi, h.yi);
+    const isSel = selectedHole && h.xi===selectedHole.xi && h.yi===selectedHole.yi;
+    if (isSel) {
+      ctx.beginPath(); ctx.arc(p.x,p.y, selHoleR*2.5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(204,59,59,0.12)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x,p.y, selHoleR, 0, Math.PI*2);
+      ctx.fillStyle = COL.red; ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(p.x,p.y, holeR, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(29,53,87,0.13)'; ctx.fill();
+    }
+  });
+
+  // ── Shockwave ──
+  if (waveActive && waveOrigin) {
+    waveRadius += SCALE * 0.28;
+    for (let w = 0; w < 4; w++) {
+      const r = waveRadius - w * SCALE*1.2;
+      if (r < 0) continue;
+      const a = Math.max(0, 0.35 - w*0.07 - waveRadius*0.0004);
+      if (a <= 0) continue;
+      ctx.beginPath(); ctx.arc(waveOrigin.x, waveOrigin.y, r, 0, Math.PI*2);
+      ctx.strokeStyle = `rgba(42,108,182,${a})`; ctx.lineWidth = Math.max(1, SCALE*0.15 - w*0.2); ctx.stroke();
+    }
+    mics.forEach((mic,i) => {
+      if (micHit[i]) return;
+      const mp = inToPx(mic.xi, mic.yi);
+      if (waveRadius >= distPx(waveOrigin.x, waveOrigin.y, mp.x, mp.y)) micHit[i] = true;
+    });
+    if (waveRadius > CW) waveActive = false;
+  }
+
+  // ── Distance lines ──
+  if (selectedHole) {
+    const sp = inToPx(selectedHole.xi, selectedHole.yi);
+    const colors = [COL.blue, COL.navy, COL.red];
+    mics.forEach((mic,i) => {
+      const mp = inToPx(mic.xi, mic.yi);
+      ctx.beginPath(); ctx.moveTo(sp.x,sp.y); ctx.lineTo(mp.x,mp.y);
+      ctx.strokeStyle = colors[i]; ctx.lineWidth = Math.max(1, SCALE*0.08);
+      ctx.setLineDash([SCALE*0.3, SCALE*0.3]); ctx.stroke(); ctx.setLineDash([]);
+
+      const mx = (sp.x+mp.x)/2, my = (sp.y+mp.y)/2;
+      const d = distIn(selectedHole.xi, selectedHole.yi, mic.xi, mic.yi);
+      ctx.fillStyle = colors[i];
+      ctx.font = `${SCALE*0.6}px Share Tech Mono`;
+      const ox = i===0 ? -SCALE*3.5 : i===2 ? SCALE*0.5 : -SCALE*1.5;
+      ctx.fillText(`${d.toFixed(1)}″`, mx+ox, my - SCALE*0.3);
+    });
+
+    const sp2 = inToPx(selectedHole.xi, selectedHole.yi);
+    ctx.fillStyle = COL.red;
+    ctx.font = `${SCALE*0.55}px Share Tech Mono`;
+    ctx.fillText(`(${selectedHole.xi}″, ${selectedHole.yi}″)`, sp2.x + SCALE*0.6, sp2.y - SCALE*0.5);
+  }
+
+  // ── Mic zone ──
+  const mzY = by0 + bpxH;
+  ctx.fillStyle = 'rgba(29,53,87,0.04)';
+  ctx.fillRect(bx0, mzY, bpxW, MIC_BELOW*SCALE + SCALE*2);
+  ctx.strokeStyle = 'rgba(29,53,87,0.1)'; ctx.lineWidth = 1;
+  ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(bx0,mzY); ctx.lineTo(bx0+bpxW,mzY); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(29,53,87,0.2)'; ctx.font = `${SCALE*0.5}px Share Tech Mono`;
+  ctx.fillText('5″ BELOW EDGE', bx0+SCALE*0.3, mzY+SCALE*0.7);
+
+  // ── Mics ──
+  const micCols = [COL.blue, COL.navy, COL.red];
+  const micR = Math.max(4, SCALE*0.5);
+  mics.forEach((mic,i) => {
+    const mp = inToPx(mic.xi, mic.yi);
+    const hit = micHit[i];
+
+    if (hit) {
+      const g = ctx.createRadialGradient(mp.x,mp.y,0,mp.x,mp.y,micR*3);
+      g.addColorStop(0,'rgba(50,168,102,0.4)'); g.addColorStop(1,'rgba(50,168,102,0)');
+      ctx.beginPath(); ctx.arc(mp.x,mp.y,micR*3,0,Math.PI*2); ctx.fillStyle=g; ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(29,53,87,0.25)'; ctx.lineWidth = Math.max(1,SCALE*0.1);
+    ctx.beginPath(); ctx.moveTo(mp.x,mp.y+micR); ctx.lineTo(mp.x,mp.y+micR+SCALE*0.8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mp.x-micR,mp.y+micR+SCALE*0.8); ctx.lineTo(mp.x+micR,mp.y+micR+SCALE*0.8); ctx.stroke();
+
+    ctx.fillStyle = hit ? COL.green : micCols[i];
+    ctx.beginPath(); ctx.arc(mp.x,mp.y,micR,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(mp.x,mp.y,micR*0.4,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = hit ? COL.green : micCols[i];
+    ctx.font = `${SCALE*0.65}px Share Tech Mono`;
+    ctx.textAlign = 'center';
+    ctx.fillText(mic.label, mp.x, mp.y - micR - SCALE*0.4);
+    ctx.textAlign = 'left';
+  });
+
+  // Spacing annotations
+  const m1p=inToPx(mic1.xi,mic1.yi), m2p=inToPx(mic2.xi,mic2.yi), m3p=inToPx(mic3.xi,mic3.yi);
+  const aY = m1p.y + micR + SCALE*1.5;
+  ctx.strokeStyle = 'rgba(29,53,87,0.2)'; ctx.lineWidth=1;
+  [m1p,m2p,m3p].forEach(p => { ctx.beginPath(); ctx.moveTo(p.x,aY-3); ctx.lineTo(p.x,aY+3); ctx.stroke(); });
+  ctx.beginPath(); ctx.moveTo(m1p.x,aY); ctx.lineTo(m2p.x,aY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(m2p.x,aY); ctx.lineTo(m3p.x,aY); ctx.stroke();
+  ctx.fillStyle = 'rgba(29,53,87,0.35)'; ctx.font = `${SCALE*0.55}px Share Tech Mono`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`${micSp}″`, (m1p.x+m2p.x)/2, aY-SCALE*0.4);
+  ctx.fillText(`${micSp}″`, (m2p.x+m3p.x)/2, aY-SCALE*0.4);
+  ctx.textAlign = 'left';
+
+  if (waveActive) requestAnimationFrame(draw);
+}
+
+// ══════════════════════════════════════════════
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = CW / rect.width;
+  const sy = CH / rect.height;
+  const cx = (e.clientX - rect.left) * sx;
+  const cy = (e.clientY - rect.top) * sy;
+
+  let closest = null, cd = Infinity;
+  holes.forEach(h => {
+    const p = inToPx(h.xi, h.yi);
+    const d = distPx(cx,cy,p.x,p.y);
+    if (d < cd) { cd = d; closest = h; }
+  });
+
+  if (!closest || cd > SCALE*1.2) return;
+
+  selectedHole = closest;
+
+  const d1 = distIn(closest.xi, closest.yi, mic1.xi, mic1.yi);
+  const d2 = distIn(closest.xi, closest.yi, mic2.xi, mic2.yi);
+  const d3 = distIn(closest.xi, closest.yi, mic3.xi, mic3.yi);
+
+  const t1=d1/C_IN_S, t2=d2/C_IN_S, t3=d3/C_IN_S;
+  const dt12=t1-t2, dt32=t3-t2;
+
+  document.getElementById('d1').textContent = d1.toFixed(1)+'″';
+  document.getElementById('d2').textContent = d2.toFixed(1)+'″';
+  document.getElementById('d3').textContent = d3.toFixed(1)+'″';
+
+  const us12=dt12*1e6, us32=dt32*1e6;
+  document.getElementById('dt12').textContent = (us12>=0?'+':'')+us12.toFixed(1)+' μs';
+  document.getElementById('dt32').textContent = (us32>=0?'+':'')+us32.toFixed(1)+' μs';
+
+  waveOrigin = inToPx(closest.xi, closest.yi);
+  waveRadius = 0; waveActive = true;
+  micHit = [false,false,false];
+
+  requestAnimationFrame(draw);
+});
+
+draw();
+</script>
+</body>
+</html>
